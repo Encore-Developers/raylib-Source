@@ -1,9 +1,8 @@
 //========================================================================
-// GLFW 3.4 Win32 (modified for raylib) - www.glfw.org; www.raylib.com
+// GLFW 3.5 Win32 - www.glfw.org
 //------------------------------------------------------------------------
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2019 Camilla Löwy <elmindreda@glfw.org>
-// Copyright (c) 2024 M374LX <wilsalx@gmail.com>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -33,6 +32,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 #include <windowsx.h>
 #include <shellapi.h>
 
@@ -471,7 +471,7 @@ static void releaseMonitorWin32(_GLFWwindow* window)
     {
         SetThreadExecutionState(ES_CONTINUOUS);
 
-        // HACK: Restore mouse trail length saved in acquireMonitorWin32
+        // HACK: Restore mouse trail length saved in acquireMonitor
         SystemParametersInfoW(SPI_SETMOUSETRAILS, _glfw.win32.mouseTrailSize, 0, 0);
     }
 
@@ -2577,7 +2577,6 @@ VkResult _glfwCreateWindowSurfaceWin32(VkInstance instance,
 
 GLFWAPI HWND glfwGetWin32Window(GLFWwindow* handle)
 {
-    _GLFWwindow* window = (_GLFWwindow*) handle;
     _GLFW_REQUIRE_INIT_OR_RETURN(NULL);
 
     if (_glfw.platform.platformID != GLFW_PLATFORM_WIN32)
@@ -2586,6 +2585,9 @@ GLFWAPI HWND glfwGetWin32Window(GLFWwindow* handle)
                         "Win32: Platform not initialized");
         return NULL;
     }
+
+    _GLFWwindow* window = (_GLFWwindow*) handle;
+    assert(window != NULL);
 
     return window->win32.handle;
 }

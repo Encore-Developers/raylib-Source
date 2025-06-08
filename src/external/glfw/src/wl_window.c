@@ -1,8 +1,7 @@
 //========================================================================
-// GLFW 3.4 Wayland (modified for raylib) - www.glfw.org; www.raylib.com
+// GLFW 3.5 Wayland - www.glfw.org
 //------------------------------------------------------------------------
 // Copyright (c) 2014 Jonas Ådahl <jadahl@gmail.com>
-// Copyright (c) 2024 M374LX <wilsalx@gmail.com>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -2184,6 +2183,12 @@ void _glfwDestroyWindowWayland(_GLFWwindow* window)
     if (window == _glfw.wl.keyboardFocus)
         _glfw.wl.keyboardFocus = NULL;
 
+    if (window->wl.fractionalScale)
+        wp_fractional_scale_v1_destroy(window->wl.fractionalScale);
+
+    if (window->wl.scalingViewport)
+        wp_viewport_destroy(window->wl.scalingViewport);
+
     if (window->wl.activationToken)
         xdg_activation_token_v1_destroy(window->wl.activationToken);
 
@@ -3292,7 +3297,6 @@ GLFWAPI struct wl_display* glfwGetWaylandDisplay(void)
 
 GLFWAPI struct wl_surface* glfwGetWaylandWindow(GLFWwindow* handle)
 {
-    _GLFWwindow* window = (_GLFWwindow*) handle;
     _GLFW_REQUIRE_INIT_OR_RETURN(NULL);
 
     if (_glfw.platform.platformID != GLFW_PLATFORM_WAYLAND)
@@ -3301,6 +3305,9 @@ GLFWAPI struct wl_surface* glfwGetWaylandWindow(GLFWwindow* handle)
                         "Wayland: Platform not initialized");
         return NULL;
     }
+
+    _GLFWwindow* window = (_GLFWwindow*) handle;
+    assert(window != NULL);
 
     return window->wl.surface;
 }

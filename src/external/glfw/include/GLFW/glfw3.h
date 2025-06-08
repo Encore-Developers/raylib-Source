@@ -1,5 +1,5 @@
 /*************************************************************************
- * GLFW 3.4 - www.glfw.org
+ * GLFW 3.5 - www.glfw.org
  * A library for OpenGL, window and input
  *------------------------------------------------------------------------
  * Copyright (c) 2002-2006 Marcus Geelnard
@@ -291,7 +291,7 @@ extern "C" {
  *  features are added to the API but it remains backward-compatible.
  *  @ingroup init
  */
-#define GLFW_VERSION_MINOR          4
+#define GLFW_VERSION_MINOR          5
 /*! @brief The revision number of the GLFW header.
  *
  *  The revision number of the GLFW header.  This is incremented when a bug fix
@@ -1149,11 +1149,12 @@ extern "C" {
 #define GLFW_OPENGL_CORE_PROFILE    0x00032001
 #define GLFW_OPENGL_COMPAT_PROFILE  0x00032002
 
-#define GLFW_CURSOR                 0x00033001
-#define GLFW_STICKY_KEYS            0x00033002
-#define GLFW_STICKY_MOUSE_BUTTONS   0x00033003
-#define GLFW_LOCK_KEY_MODS          0x00033004
-#define GLFW_RAW_MOUSE_MOTION       0x00033005
+#define GLFW_CURSOR                  0x00033001
+#define GLFW_STICKY_KEYS             0x00033002
+#define GLFW_STICKY_MOUSE_BUTTONS    0x00033003
+#define GLFW_LOCK_KEY_MODS           0x00033004
+#define GLFW_RAW_MOUSE_MOTION        0x00033005
+#define GLFW_UNLIMITED_MOUSE_BUTTONS 0x00033006
 
 #define GLFW_CURSOR_NORMAL          0x00034001
 #define GLFW_CURSOR_HIDDEN          0x00034002
@@ -2105,6 +2106,7 @@ typedef struct GLFWimage
  *
  *  @sa @ref gamepad
  *  @sa @ref glfwGetGamepadState
+ *  @sa @ref glfwSetGamepadStateCallback
  *
  *  @since Added in version 3.3.
  *
@@ -2153,6 +2155,103 @@ typedef struct GLFWallocator
      */
     void* user;
 } GLFWallocator;
+
+/*! @brief The function pointer type for joystick button callbacks.
+ *
+ *  This is the function pointer type for joystick button callbacks.  A joystick
+ *  button callback function has the following signature:
+ *  @code
+ *  void function_name(int jid, int button, int action)
+ *  @endcode
+ *
+ *  @param[in] jid The joystick that had a button pressed or released.
+ *  @param[in] button The [joystick button](@ref buttons) that was pressed or released.
+ *  @param[in] action `GLFW_PRESS` or `GLFW_RELEASE`.  Future
+ *  releases may add more actions.
+ *
+ *  @sa @ref input_joystick_button
+ *  @sa @ref glfwSetJoystickButonCallback
+ *
+ *  @since Added in version 3.4.
+ *  @ingroup input
+ */
+typedef void (* GLFWjoystickbuttonfun)(int,int,int);
+
+/*! @brief The function pointer type for joystick axis movement callbacks.
+ *
+ *  This is the function pointer type for joystick axis movement callbacks.  A joystick
+ *  axis movement callback function has the following signature:
+ *  @code
+ *  void function_name(int jid, int axis, float position)
+ *  @endcode
+ *
+ *  @param[in] jid The joystick that had an axis moved.
+ *  @param[in] axis The [joystick axis](@ref gamepad axes) that was moved.
+ *  @param[in] position A value between -1.0 and 1.0 that indicates the position of the axis.
+ *
+ *  @sa @ref input_gamepad_axis
+ *  @sa @ref glfwSetJoystickAxisCallback
+ *
+ *  @since Added in version 3.4.
+ *  @ingroup input
+ */
+typedef void (* GLFWjoystickaxisfun)(int,int,float);
+
+/*! @brief The function pointer type for joystick hat movement callbacks.
+ *
+ *  This is the function pointer type for joystick hat movement callbacks.  A joystick
+ *  hat movement callback function has the following signature:
+ *  @code
+ *  void function_name(int jid, int hat, int position)
+ *  @endcode
+ *
+ *  @param[in] jid The joystick that had an axis moved.
+ *  @param[in] hat The [joystick hat](@ref joystick hats) that was moved.
+ *  @param[in] position A value that indicates the position of the hat.
+ *  The position parameter is one of the following values:
+ *
+ *  Name                  | Value
+ *  ----                  | -----
+ *  `GLFW_HAT_CENTERED`   | 0
+ *  `GLFW_HAT_UP`         | 1
+ *  `GLFW_HAT_RIGHT`      | 2
+ *  `GLFW_HAT_DOWN`       | 4
+ *  `GLFW_HAT_LEFT`       | 8
+ *  `GLFW_HAT_RIGHT_UP`   | `GLFW_HAT_RIGHT` \| `GLFW_HAT_UP`
+ *  `GLFW_HAT_RIGHT_DOWN` | `GLFW_HAT_RIGHT` \| `GLFW_HAT_DOWN`
+ *  `GLFW_HAT_LEFT_UP`    | `GLFW_HAT_LEFT` \| `GLFW_HAT_UP`
+ *  `GLFW_HAT_LEFT_DOWN`  | `GLFW_HAT_LEFT` \| `GLFW_HAT_DOWN`
+ *
+ *  The diagonal directions are bitwise combinations of the primary (up, right,
+ *  down and left) directions and you can test for these individually by ANDing
+ *  it with the corresponding direction.
+ *
+ *  @sa @ref input_joystick_hat
+ *  @sa @ref glfwSetJoystickHatCallback
+ *
+ *  @since Added in version 3.4.
+ *  @ingroup input
+ */
+typedef void (* GLFWjoystickhatfun)(int,int,int);
+
+/*! @brief The function pointer type for game pad state changes.
+ *
+ *  This is the function pointer type for game pad state change callbacks.
+ *  A game pad state change callback function has the following signature:
+ *  @code
+ *  void function_name(int jid, GLFWgamepadstate* state)
+ *  @endcode
+ *
+ *  @param[in] jid The ID of the game pad that changed state.
+ *  @param[in] state the state of the game pad
+ *
+ *  @sa @ref input_gamepad
+ *  @sa @ref glfwSetGamepadStateCallback
+ *
+ *  @since Added in version 3.4.
+ *  @ingroup input
+ */
+typedef void (* GLFWgamepadstatefun)(int jid, GLFWgamepadstate state);
 
 
 /*************************************************************************
@@ -4676,8 +4775,8 @@ GLFWAPI int glfwGetInputMode(GLFWwindow* window, int mode);
  *
  *  This function sets an input mode option for the specified window.  The mode
  *  must be one of @ref GLFW_CURSOR, @ref GLFW_STICKY_KEYS,
- *  @ref GLFW_STICKY_MOUSE_BUTTONS, @ref GLFW_LOCK_KEY_MODS or
- *  @ref GLFW_RAW_MOUSE_MOTION.
+ *  @ref GLFW_STICKY_MOUSE_BUTTONS, @ref GLFW_LOCK_KEY_MODS
+ *  @ref GLFW_RAW_MOUSE_MOTION, or @ref GLFW_UNLIMITED_MOUSE_BUTTONS.
  *
  *  If the mode is `GLFW_CURSOR`, the value must be one of the following cursor
  *  modes:
@@ -4716,6 +4815,11 @@ GLFWAPI int glfwGetInputMode(GLFWwindow* window, int mode);
  *  disabled, or `GLFW_FALSE` to disable it.  If raw motion is not supported,
  *  attempting to set this will emit @ref GLFW_FEATURE_UNAVAILABLE.  Call @ref
  *  glfwRawMouseMotionSupported to check for support.
+ *
+ *  If the mode is `GLFW_UNLIMITED_MOUSE_BUTTONS`, the value must be either
+ *  `GLFW_TRUE` to disable the mouse button limit when calling the mouse button
+ *  callback, or `GLFW_FALSE` to limit the mouse buttons sent to the callback
+ *  to the mouse button token values up to `GLFW_MOUSE_BUTTON_LAST`.
  *
  *  @param[in] window The window whose input mode to set.
  *  @param[in] mode One of `GLFW_CURSOR`, `GLFW_STICKY_KEYS`,
@@ -4911,8 +5015,11 @@ GLFWAPI int glfwGetKey(GLFWwindow* window, int key);
  *  returns `GLFW_PRESS` the first time you call it for a mouse button that was
  *  pressed, even if that mouse button has already been released.
  *
+ *  The @ref GLFW_UNLIMITED_MOUSE_BUTTONS input mode does not effect the
+ *  limit on buttons which can be polled with this function.
+ *
  *  @param[in] window The desired window.
- *  @param[in] button The desired [mouse button](@ref buttons).
+ *  @param[in] button The desired [mouse button token](@ref buttons).
  *  @return One of `GLFW_PRESS` or `GLFW_RELEASE`.
  *
  *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED and @ref
@@ -5288,10 +5395,15 @@ GLFWAPI GLFWcharmodsfun glfwSetCharModsCallback(GLFWwindow* window, GLFWcharmods
  *  is called when a mouse button is pressed or released.
  *
  *  When a window loses input focus, it will generate synthetic mouse button
- *  release events for all pressed mouse buttons.  You can tell these events
- *  from user-generated events by the fact that the synthetic ones are generated
- *  after the focus loss event has been processed, i.e. after the
- *  [window focus callback](@ref glfwSetWindowFocusCallback) has been called.
+ *  release events for all pressed mouse buttons with associated button tokens.
+ *  You can tell these events from user-generated events by the fact that the
+ *  synthetic ones are generated after the focus loss event has been processed,
+ *  i.e. after the [window focus callback](@ref glfwSetWindowFocusCallback) has
+ *  been called.
+ *
+ *  The reported `button` value can be higher than `GLFW_MOUSE_BUTTON_LAST` if
+ *  the button does not have an associated [button token](@ref buttons) and the
+ *  @ref GLFW_UNLIMITED_MOUSE_BUTTONS input mode is set.
  *
  *  @param[in] window The window whose callback to set.
  *  @param[in] callback The new callback, or `NULL` to remove the currently set
@@ -5791,6 +5903,140 @@ GLFWAPI int glfwJoystickIsGamepad(int jid);
  *  @ingroup input
  */
 GLFWAPI GLFWjoystickfun glfwSetJoystickCallback(GLFWjoystickfun callback);
+
+/*! @brief Sets the joystick button callback.
+ *
+ *  This function sets the joystick configuration callback, or removes the
+ *  currently set callback.  This is called when a joystick button is pressed
+ *  or released.
+ *
+ *  For joystick button events to be delivered on all platforms,
+ *  you need to call one of the [event processing](@ref events)
+ *  functions.
+ *
+ *  @param[in] callback The new callback, or `NULL` to remove the currently set
+ *  callback.
+ *  @return The previously set callback, or `NULL` if no callback was set or the
+ *  library had not been [initialized](@ref intro_init).
+ *
+ *  @callback_signature
+ *  @code
+ *  void function_name(int jid, int button, int state)
+ *  @endcode
+ *  For more information about the callback parameters, see the
+ *  [function pointer type](@ref GLFWjoystickbuttonfun).
+ *
+ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED.
+ *
+ *  @thread_safety This function must only be called from the main thread.
+ *
+ *  @sa @ref joystick_event
+ *
+ *  @since Added in version 3.2.
+ *
+ *  @ingroup input
+ */
+GLFWAPI GLFWjoystickbuttonfun glfwSetJoystickButtonCallback(GLFWjoystickbuttonfun callback);
+
+/*! @brief Sets the joystick axis callback.
+ *
+ *  This function sets the joystick axis callback, or removes the
+ *  currently set callback.  This is called when a joystick axis moved.
+ *
+ *  For joystick axis events to be delivered on all platforms,
+ *  you need to call one of the [event processing](@ref events)
+ *  functions.
+ *
+ *  @param[in] callback The new callback, or `NULL` to remove the currently set
+ *  callback.
+ *  @return The previously set callback, or `NULL` if no callback was set or the
+ *  library had not been [initialized](@ref intro_init).
+ *
+ *  @callback_signature
+ *  @code
+ *  void function_name(int jid, int axis, float state)
+ *  @endcode
+ *  For more information about the callback parameters, see the
+ *  [function pointer type](@ref GLFWjoystickaxisfun).
+ *
+ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED.
+ *
+ *  @thread_safety This function must only be called from the main thread.
+ *
+ *  @sa @ref joystick_event
+ *
+ *  @since Added in version 3.2.
+ *
+ *  @ingroup input
+ */
+GLFWAPI GLFWjoystickaxisfun glfwSetJoystickAxisCallback(GLFWjoystickaxisfun callback);
+
+/*! @brief Sets the joystick hat callback.
+ *
+ *  This function sets the joystick hat callback, or removes the
+ *  currently set callback.  This is called when a joystick hat moved.
+ *
+ *  For joystick hat events to be delivered on all platforms,
+ *  you need to call one of the [event processing](@ref events)
+ *  functions.
+ *
+ *  @param[in] callback The new callback, or `NULL` to remove the currently set
+ *  callback.
+ *  @return The previously set callback, or `NULL` if no callback was set or the
+ *  library had not been [initialized](@ref intro_init).
+ *
+ *  @callback_signature
+ *  @code
+ *  void function_name(int jid, int hat, int state)
+ *  @endcode
+ *  For more information about the callback parameters, see the
+ *  [function pointer type](@ref GLFWjoystickhatfun).
+ *
+ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED.
+ *
+ *  @thread_safety This function must only be called from the main thread.
+ *
+ *  @sa @ref joystick_event
+ *
+ *  @since Added in version 3.2.
+ *
+ *  @ingroup input
+ */
+GLFWAPI GLFWjoystickhatfun glfwSetJoystickHatCallback(GLFWjoystickhatfun callback);
+
+/*! @brief Sets the game pad state callback.
+ *
+ *  This function sets the game pad state callback, or removes the
+ *  currently set callback.  This is called when a game pad state changes.
+ *
+ *  For game pad events to be delivered on all platforms,
+ *  you need to call one of the [event processing](@ref events)
+ *  functions.
+ *
+ *  @param[in] callback The new callback, or `NULL` to remove the currently set
+ *  callback.
+ *  @return The previously set callback, or `NULL` if no callback was set or the
+ *  library had not been [initialized](@ref intro_init).
+ *
+ *  @callback_signature
+ *  @code
+ *  void function_name(int jid, unsigned char buttons[15], float axes[6])
+ *  @endcode
+ *  For more information about the callback parameters, see the
+ *  [function pointer type](@ref GLFWgamepadstatefun).
+ *
+ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED.
+ *
+ *  @thread_safety This function must only be called from the main thread.
+ *
+ *  @sa @ref joystick_event
+ *
+ *  @since Added in version 3.2.
+ *
+ *  @ingroup input
+ */
+GLFWAPI GLFWgamepadstatefun glfwSetGamepadStateCallback(GLFWgamepadstatefun callback);
+
 
 /*! @brief Adds the specified SDL_GameControllerDB gamepad mappings.
  *
