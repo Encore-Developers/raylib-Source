@@ -1086,7 +1086,7 @@ void BeginScissorMode(int x, int y, int width, int height)
 #else
     if (!CORE.Window.usingFbo && FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_HIGHDPI))
     {
-        Vector2 scale = GetWindowScaleDPI();
+        Vector2 scale = {1, 1};
         rlScissor((int)(x*scale.x), (int)(CORE.Window.currentFbo.height - (y + height)*scale.y), (int)(width*scale.x), (int)(height*scale.y));
     }
 #endif
