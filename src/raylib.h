@@ -84,6 +84,8 @@
 #ifndef RAYLIB_H
 #define RAYLIB_H
 
+#include "SDL3/SDL_events.h"
+
 #include <stdarg.h>     // Required for: va_list - Only used by TraceLogCallback
 
 #define RAYLIB_VERSION_MAJOR 6
@@ -1102,6 +1104,7 @@ RLAPI int GetFPS(void);                                 // Get current FPS
 // To avoid that behaviour and control frame processes manually, enable in config.h: SUPPORT_CUSTOM_FRAME_CONTROL
 RLAPI void SwapScreenBuffer(void);                      // Swap back buffer with front buffer (screen drawing)
 RLAPI void PollInputEvents(void);                       // Register all input events
+RLAPI void ProcessSDLEvent(SDL_Event event);
 RLAPI void WaitTime(double seconds);                    // Wait for some time (halt program execution)
 
 // Random values generation functions
@@ -1206,6 +1209,7 @@ RLAPI int GetKeyPressed(void);                                // Get key pressed
 RLAPI int GetCharPressed(void);                               // Get char pressed (unicode), call it multiple times for chars queued, returns 0 when the queue is empty
 RLAPI const char *GetKeyName(int key);                        // Get name of a QWERTY key on the current keyboard layout (eg returns string 'q' for KEY_A on an AZERTY keyboard)
 RLAPI void SetExitKey(int key);                               // Set a custom key to exit program (default is ESC)
+RLAPI KeyboardKey ConvertScancodeToKey(SDL_Scancode sdlScancode);  // Help convert SDL scancodes to raylib key
 
 // Input-related functions: gamepads
 RLAPI bool IsGamepadAvailable(int gamepad);                   // Check if a gamepad is available

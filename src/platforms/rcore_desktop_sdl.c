@@ -440,7 +440,7 @@ void *SDL_GetClipboardData(const char *mime_type, size_t *size)
 int InitPlatform(void);                                      // Initialize platform (graphics, inputs and more)
 void ClosePlatform(void);                                    // Close platform
 
-static KeyboardKey ConvertScancodeToKey(SDL_Scancode sdlScancode);  // Help convert SDL scancodes to raylib key
+
 static int GetCodepointNextSDL(const char *text, int *codepointSize); // Get next codepoint in a byte sequence and bytes processed
 static void UpdateTouchPointsSDL(SDL_TouchFingerEvent event); // Update CORE input touch point info from SDL touch data
 
@@ -1419,6 +1419,451 @@ const char *GetKeyName(int key)
     return SDL_GetKeyName(key);
 }
 
+void ProcessSDLEvent(SDL_Event event) {
+
+    int touchAction = 0;
+    // All input events can be processed after polling
+    switch (event.type)
+    {
+        case SDL_QUIT: CORE.Window.shouldClose = true; break;
+
+        // Window events are also polled (minimized, maximized, close...)
+
+        #ifndef USING_VERSION_SDL3
+        // The SDL_WINDOWEVENT_* events have been moved to top level events, and SDL_WINDOWEVENT has been removed
+        // In general, handling this change means checking for the individual events instead of first checking for SDL_WINDOWEVENT
+        // and then checking for window events; Events >= SDL_EVENT_WINDOW_FIRST and <= SDL_EVENT_WINDOW_LAST can be compared
+        // to see whether it's a window event
+        case SDL_WINDOWEVENT:
+        {
+            switch (event.window.event)
+            {
+        #endif
+                case SDL_WINDOWEVENT_RESIZED:
+                case SDL_WINDOWEVENT_SIZE_CHANGED:
+                {
+                    const int width = event.window.data1;
+                    const int height = event.window.data2;
+                    SetupViewport(width, height);
+                    CORE.Window.currentFbo.width = width;
+                    CORE.Window.currentFbo.height = height;
+
+                    // Consider content scaling if required
+                    if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_HIGHDPI))
+                    {
+                        CORE.Window.screen.width = (int)(width/GetWindowScaleDPI().x);
+                        CORE.Window.screen.height = (int)(height/GetWindowScaleDPI().y);
+                    }
+                    else
+                    {
+                        CORE.Window.screen.width = width;
+                        CORE.Window.screen.height = height;
+                    }
+
+                    CORE.Window.resizedLastFrame = true;
+
+                    #ifndef USING_VERSION_SDL3
+                    // Manually detect if the window was maximized (due to SDL2 restore being unreliable on some platforms)
+                    // to remove the FLAG_WINDOW_MAXIMIZED accordingly
+                    if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_MAXIMIZED))
+                    {
+                        int borderTop = 0;
+                        int borderLeft = 0;
+                        int borderBottom = 0;
+                        int borderRight = 0;
+                        SDL_GetWindowBordersSize(platform.window, &borderTop, &borderLeft, &borderBottom, &borderRight);
+                        SDL_Rect usableBounds;
+                        SDL_GetDisplayUsableBounds(SDL_GetWindowDisplayIndex(platform.window), &usableBounds);
+
+                        if ((width + borderLeft + borderRight != usableBounds.w) && (height + borderTop + borderBottom != usableBounds.h)) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_MAXIMIZED);
+                    }
+                    #endif
+
+                    #if defined(GRAPHICS_API_OPENGL_SOFTWARE)
+                    swResize(width, height);
+                    #endif
+                } break;
+
+                case SDL_WINDOWEVENT_ENTER: CORE.Input.Mouse.cursorOnScreen = true; break;
+                case SDL_WINDOWEVENT_LEAVE: CORE.Input.Mouse.cursorOnScreen = false; break;
+
+                case SDL_WINDOWEVENT_MINIMIZED:
+                {
+                    if (!FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_MINIMIZED)) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_MINIMIZED);
+                } break;
+                case SDL_WINDOWEVENT_MAXIMIZED:
+                {
+                    if (!FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_MAXIMIZED)) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_MAXIMIZED);
+                } break;
+                case SDL_WINDOWEVENT_RESTORED:
+                {
+                    if (!FLAG_IS_SET(SDL_GetWindowFlags(platform.window), SDL_WINDOW_MINIMIZED))
+                    {
+                        if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_MINIMIZED)) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_MINIMIZED);
+                    }
+
+                    #ifdef USING_VERSION_SDL3
+                    if (!FLAG_IS_SET(SDL_GetWindowFlags(platform.window), SDL_WINDOW_MAXIMIZED))
+                    {
+                        if (FLAG_IS_SET(CORE.Window.flags, SDL_WINDOW_MAXIMIZED)) FLAG_CLEAR(CORE.Window.flags, SDL_WINDOW_MAXIMIZED);
+                    }
+                    #endif
+                } break;
+
+                case SDL_WINDOWEVENT_HIDDEN:
+                {
+                    if (!FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_HIDDEN)) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_HIDDEN);
+                } break;
+                case SDL_WINDOWEVENT_SHOWN:
+                {
+                    if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_HIDDEN)) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_HIDDEN);
+                } break;
+
+                case SDL_WINDOWEVENT_FOCUS_GAINED:
+                {
+                    if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED)) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);
+                } break;
+                case SDL_WINDOWEVENT_FOCUS_LOST:
+                {
+                    if (!FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED)) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);
+                } break;
+
+        #ifndef USING_VERSION_SDL3
+                default: break;
+            }
+        } break;
+        #endif
+
+        // Keyboard events
+        case SDL_KEYDOWN:
+        {
+        #if defined(USING_VERSION_SDL3)
+            // SDL3 Migration: The following structures have been removed: SDL_Keysym
+            KeyboardKey key = ConvertScancodeToKey(event.key.scancode);
+        #else
+            KeyboardKey key = ConvertScancodeToKey(event.key.keysym.scancode);
+        #endif
+
+            if (key != KEY_NULL)
+            {
+                // If key was up, add it to the key pressed queue
+                if ((CORE.Input.Keyboard.currentKeyState[key] == 0) && (CORE.Input.Keyboard.keyPressedQueueCount < MAX_KEY_PRESSED_QUEUE))
+                {
+                    CORE.Input.Keyboard.keyPressedQueue[CORE.Input.Keyboard.keyPressedQueueCount] = key;
+                    CORE.Input.Keyboard.keyPressedQueueCount++;
+                }
+
+                CORE.Input.Keyboard.currentKeyState[key] = 1;
+            }
+
+            if (event.key.repeat) CORE.Input.Keyboard.keyRepeatInFrame[key] = 1;
+
+            // Check for registered exit key to request exit game loop on next iteration
+            if (CORE.Input.Keyboard.currentKeyState[CORE.Input.Keyboard.exitKey]) CORE.Window.shouldClose = true;
+
+        } break;
+
+        case SDL_KEYUP:
+        {
+
+        #if defined(USING_VERSION_SDL3)
+            KeyboardKey key = ConvertScancodeToKey(event.key.scancode);
+        #else
+            KeyboardKey key = ConvertScancodeToKey(event.key.keysym.scancode);
+        #endif
+            if (key != KEY_NULL) CORE.Input.Keyboard.currentKeyState[key] = 0;
+        } break;
+
+        case SDL_TEXTINPUT:
+        {
+            // NOTE: event.text.text data comes an UTF-8 text sequence but register codepoints (int)
+
+            // Check if there is space available in the queue
+            if (CORE.Input.Keyboard.charPressedQueueCount < MAX_CHAR_PRESSED_QUEUE)
+            {
+                // Add character (codepoint) to the queue
+
+            #if defined(USING_VERSION_SDL3)
+                size_t textLen = strlen(event.text.text);
+                unsigned int codepoint = (unsigned int)SDL_StepUTF8(&event.text.text, &textLen);
+            #else
+                int codepointSize = 0;
+                int codepoint = GetCodepointNextSDL(event.text.text, &codepointSize);
+            #endif
+
+                CORE.Input.Keyboard.charPressedQueue[CORE.Input.Keyboard.charPressedQueueCount] = codepoint;
+                CORE.Input.Keyboard.charPressedQueueCount++;
+            }
+        } break;
+
+        // Check mouse events
+        case SDL_MOUSEBUTTONDOWN:
+        {
+            // NOTE: SDL2 mouse button order is LEFT, MIDDLE, RIGHT, but raylib uses LEFT, RIGHT, MIDDLE like GLFW
+            // The following conditions align SDL with raylib.h MouseButton enum order
+            int btn = event.button.button - 1;
+            if (btn == 2) btn = 1;
+            else if (btn == 1) btn = 2;
+
+            CORE.Input.Mouse.currentButtonState[btn] = 1;
+            CORE.Input.Touch.currentTouchState[btn] = 1;
+
+            touchAction = 1;
+        } break;
+        case SDL_MOUSEBUTTONUP:
+        {
+            // NOTE: SDL2 mouse button order is LEFT, MIDDLE, RIGHT, but raylib uses LEFT, RIGHT, MIDDLE like GLFW
+            // The following conditions align SDL with raylib.h MouseButton enum order
+            int btn = event.button.button - 1;
+            if (btn == 2) btn = 1;
+            else if (btn == 1) btn = 2;
+
+            CORE.Input.Mouse.currentButtonState[btn] = 0;
+            CORE.Input.Touch.currentTouchState[btn] = 0;
+
+            touchAction = 0;
+        } break;
+        case SDL_MOUSEWHEEL:
+        {
+#if defined(USING_VERSION_SDL3)
+            CORE.Input.Mouse.currentWheelMove.x = event.wheel.x;
+            CORE.Input.Mouse.currentWheelMove.y = event.wheel.y;
+#else
+            CORE.Input.Mouse.currentWheelMove.x = event.wheel.preciseX;
+            CORE.Input.Mouse.currentWheelMove.y = event.wheel.preciseY;
+#endif
+        } break;
+        case SDL_MOUSEMOTION:
+        {
+            if (CORE.Input.Mouse.cursorLocked)
+            {
+                CORE.Input.Mouse.currentPosition.x = (float)event.motion.xrel;
+                CORE.Input.Mouse.currentPosition.y = (float)event.motion.yrel;
+                CORE.Input.Mouse.previousPosition = (Vector2){ 0.0f, 0.0f };
+            }
+            else
+            {
+                CORE.Input.Mouse.currentPosition.x = (float)event.motion.x;
+                CORE.Input.Mouse.currentPosition.y = (float)event.motion.y;
+            }
+
+            CORE.Input.Touch.position[0] = CORE.Input.Mouse.currentPosition;
+            touchAction = 2;
+        } break;
+
+        case SDL_FINGERDOWN:
+        {
+            UpdateTouchPointsSDL(event.tfinger);
+            touchAction = 1;
+        } break;
+        case SDL_FINGERUP:
+        {
+            UpdateTouchPointsSDL(event.tfinger);
+            touchAction = 0;
+        } break;
+        case SDL_FINGERMOTION:
+        {
+            UpdateTouchPointsSDL(event.tfinger);
+            touchAction = 2;
+        } break;
+
+        // Check gamepad events
+        case SDL_JOYDEVICEADDED:
+        {
+            int jid = event.jdevice.which; // Joystick device index
+
+            // check if already added at InitPlatform
+            for (int i = 0; i < MAX_GAMEPADS; i++)
+            {
+                if (jid == platform.gamepadId[i])
+                {
+                    return;
+                }
+            }
+
+            int nextAvailableSlot = 0;
+            while (nextAvailableSlot < MAX_GAMEPADS && CORE.Input.Gamepad.ready[nextAvailableSlot])
+            {
+                ++nextAvailableSlot;
+            }
+
+            if ((nextAvailableSlot < MAX_GAMEPADS) && !CORE.Input.Gamepad.ready[nextAvailableSlot])
+            {
+                platform.gamepad[nextAvailableSlot] = SDL_GameControllerOpen(jid);
+                platform.gamepadId[nextAvailableSlot] = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(platform.gamepad[nextAvailableSlot]));
+
+                if (platform.gamepad[nextAvailableSlot])
+                {
+                    CORE.Input.Gamepad.ready[nextAvailableSlot] = true;
+                    CORE.Input.Gamepad.axisCount[nextAvailableSlot] = SDL_JoystickNumAxes(SDL_GameControllerGetJoystick(platform.gamepad[nextAvailableSlot]));
+                    CORE.Input.Gamepad.axisState[nextAvailableSlot][GAMEPAD_AXIS_LEFT_TRIGGER] = -1.0f;
+                    CORE.Input.Gamepad.axisState[nextAvailableSlot][GAMEPAD_AXIS_RIGHT_TRIGGER] = -1.0f;
+                    memset(CORE.Input.Gamepad.name[nextAvailableSlot], 0, MAX_GAMEPAD_NAME_LENGTH);
+                    const char *controllerName = SDL_GameControllerNameForIndex(nextAvailableSlot);
+                    if (controllerName != NULL) strncpy(CORE.Input.Gamepad.name[nextAvailableSlot], controllerName, MAX_GAMEPAD_NAME_LENGTH - 1);
+                    else strncpy(CORE.Input.Gamepad.name[nextAvailableSlot], "noname", 6);
+                }
+                else TRACELOG(LOG_WARNING, "PLATFORM: Unable to open game controller [ERROR: %s]", SDL_GetError());
+            }
+        } break;
+        case SDL_JOYDEVICEREMOVED:
+        {
+            int jid = event.jdevice.which; // Joystick instance id
+
+            for (int i = 0; i < MAX_GAMEPADS; i++)
+            {
+                if (platform.gamepadId[i] == jid)
+                {
+                    SDL_GameControllerClose(platform.gamepad[i]);
+                    CORE.Input.Gamepad.ready[i] = false;
+                    memset(CORE.Input.Gamepad.name[i], 0, MAX_GAMEPAD_NAME_LENGTH);
+                    platform.gamepadId[i] = -1;
+                    break;
+                }
+            }
+        } break;
+        case SDL_CONTROLLERBUTTONDOWN:
+        {
+            int button = -1;
+
+        #if defined(USING_VERSION_SDL3)
+            switch (event.gbutton.button)
+        #else
+            switch (event.jbutton.button)
+        #endif
+            {
+                case SDL_CONTROLLER_BUTTON_Y: button = GAMEPAD_BUTTON_RIGHT_FACE_UP; break;
+                case SDL_CONTROLLER_BUTTON_B: button = GAMEPAD_BUTTON_RIGHT_FACE_RIGHT; break;
+                case SDL_CONTROLLER_BUTTON_A: button = GAMEPAD_BUTTON_RIGHT_FACE_DOWN; break;
+                case SDL_CONTROLLER_BUTTON_X: button = GAMEPAD_BUTTON_RIGHT_FACE_LEFT; break;
+
+                case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: button = GAMEPAD_BUTTON_LEFT_TRIGGER_1; break;
+                case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: button = GAMEPAD_BUTTON_RIGHT_TRIGGER_1; break;
+
+                case SDL_CONTROLLER_BUTTON_BACK: button = GAMEPAD_BUTTON_MIDDLE_LEFT; break;
+                case SDL_CONTROLLER_BUTTON_GUIDE: button = GAMEPAD_BUTTON_MIDDLE; break;
+                case SDL_CONTROLLER_BUTTON_START: button = GAMEPAD_BUTTON_MIDDLE_RIGHT; break;
+
+                case SDL_CONTROLLER_BUTTON_DPAD_UP: button = GAMEPAD_BUTTON_LEFT_FACE_UP; break;
+                case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: button = GAMEPAD_BUTTON_LEFT_FACE_RIGHT; break;
+                case SDL_CONTROLLER_BUTTON_DPAD_DOWN: button = GAMEPAD_BUTTON_LEFT_FACE_DOWN; break;
+                case SDL_CONTROLLER_BUTTON_DPAD_LEFT: button = GAMEPAD_BUTTON_LEFT_FACE_LEFT; break;
+
+                case SDL_CONTROLLER_BUTTON_LEFTSTICK: button = GAMEPAD_BUTTON_LEFT_THUMB; break;
+                case SDL_CONTROLLER_BUTTON_RIGHTSTICK: button = GAMEPAD_BUTTON_RIGHT_THUMB; break;
+                default: break;
+            }
+
+            if (button >= 0)
+            {
+                for (int i = 0; i < MAX_GAMEPADS; i++)
+                {
+                #if defined(USING_VERSION_SDL3)
+                    if (platform.gamepadId[i] == event.gbutton.which)
+                #else
+                    if (platform.gamepadId[i] == event.jbutton.which)
+                #endif
+                    {
+                        CORE.Input.Gamepad.currentButtonState[i][button] = 1;
+                        CORE.Input.Gamepad.lastButtonPressed = button;
+                        break;
+                    }
+                }
+            }
+        } break;
+        case SDL_CONTROLLERBUTTONUP:
+        {
+            int button = -1;
+
+        #if defined(USING_VERSION_SDL3)
+            switch (event.gbutton.button)
+        #else
+            switch (event.jbutton.button)
+        #endif
+            {
+                case SDL_CONTROLLER_BUTTON_Y: button = GAMEPAD_BUTTON_RIGHT_FACE_UP; break;
+                case SDL_CONTROLLER_BUTTON_B: button = GAMEPAD_BUTTON_RIGHT_FACE_RIGHT; break;
+                case SDL_CONTROLLER_BUTTON_A: button = GAMEPAD_BUTTON_RIGHT_FACE_DOWN; break;
+                case SDL_CONTROLLER_BUTTON_X: button = GAMEPAD_BUTTON_RIGHT_FACE_LEFT; break;
+
+                case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: button = GAMEPAD_BUTTON_LEFT_TRIGGER_1; break;
+                case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: button = GAMEPAD_BUTTON_RIGHT_TRIGGER_1; break;
+
+                case SDL_CONTROLLER_BUTTON_BACK: button = GAMEPAD_BUTTON_MIDDLE_LEFT; break;
+                case SDL_CONTROLLER_BUTTON_GUIDE: button = GAMEPAD_BUTTON_MIDDLE; break;
+                case SDL_CONTROLLER_BUTTON_START: button = GAMEPAD_BUTTON_MIDDLE_RIGHT; break;
+
+                case SDL_CONTROLLER_BUTTON_DPAD_UP: button = GAMEPAD_BUTTON_LEFT_FACE_UP; break;
+                case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: button = GAMEPAD_BUTTON_LEFT_FACE_RIGHT; break;
+                case SDL_CONTROLLER_BUTTON_DPAD_DOWN: button = GAMEPAD_BUTTON_LEFT_FACE_DOWN; break;
+                case SDL_CONTROLLER_BUTTON_DPAD_LEFT: button = GAMEPAD_BUTTON_LEFT_FACE_LEFT; break;
+
+                case SDL_CONTROLLER_BUTTON_LEFTSTICK: button = GAMEPAD_BUTTON_LEFT_THUMB; break;
+                case SDL_CONTROLLER_BUTTON_RIGHTSTICK: button = GAMEPAD_BUTTON_RIGHT_THUMB; break;
+                default: break;
+            }
+
+            if (button >= 0)
+            {
+                for (int i = 0; i < MAX_GAMEPADS; i++)
+                {
+                #if defined(USING_VERSION_SDL3)
+                    if (platform.gamepadId[i] == event.gbutton.which)
+                #else
+                    if (platform.gamepadId[i] == event.jbutton.which)
+                #endif
+                    {
+                        CORE.Input.Gamepad.currentButtonState[i][button] = 0;
+                        if (CORE.Input.Gamepad.lastButtonPressed == button) CORE.Input.Gamepad.lastButtonPressed = 0;
+                        break;
+                    }
+                }
+            }
+        } break;
+        case SDL_CONTROLLERAXISMOTION:
+        {
+            int axis = -1;
+
+            switch (event.jaxis.axis)
+            {
+                case SDL_CONTROLLER_AXIS_LEFTX: axis = GAMEPAD_AXIS_LEFT_X; break;
+                case SDL_CONTROLLER_AXIS_LEFTY: axis = GAMEPAD_AXIS_LEFT_Y; break;
+                case SDL_CONTROLLER_AXIS_RIGHTX: axis = GAMEPAD_AXIS_RIGHT_X; break;
+                case SDL_CONTROLLER_AXIS_RIGHTY: axis = GAMEPAD_AXIS_RIGHT_Y; break;
+                case SDL_CONTROLLER_AXIS_TRIGGERLEFT: axis = GAMEPAD_AXIS_LEFT_TRIGGER; break;
+                case SDL_CONTROLLER_AXIS_TRIGGERRIGHT: axis = GAMEPAD_AXIS_RIGHT_TRIGGER; break;
+                default: break;
+            }
+
+            if (axis >= 0)
+            {
+                for (int i = 0; i < MAX_GAMEPADS; i++)
+                {
+                    if (platform.gamepadId[i] == event.jaxis.which)
+                    {
+                        // SDL axis value range is -32768 to 32767, normalizing it to raylib's -1.0 to 1.0f range
+                        float value = event.jaxis.value/(float)32767;
+                        CORE.Input.Gamepad.axisState[i][axis] = value;
+
+                        // Register button state for triggers in addition to their axes
+                        if ((axis == GAMEPAD_AXIS_LEFT_TRIGGER) || (axis == GAMEPAD_AXIS_RIGHT_TRIGGER))
+                        {
+                            int button = (axis == GAMEPAD_AXIS_LEFT_TRIGGER)? GAMEPAD_BUTTON_LEFT_TRIGGER_2 : GAMEPAD_BUTTON_RIGHT_TRIGGER_2;
+                            int pressed = (value > 0.1f);
+                            CORE.Input.Gamepad.currentButtonState[i][button] = pressed;
+                            if (pressed) CORE.Input.Gamepad.lastButtonPressed = button;
+                            else if (CORE.Input.Gamepad.lastButtonPressed == button) CORE.Input.Gamepad.lastButtonPressed = 0;
+                        }
+                        break;
+                    }
+                }
+            }
+        } break;
+        default: break;
+    }
+
+}
+
 // Register all input events
 void PollInputEvents(void)
 {
@@ -1460,8 +1905,6 @@ void PollInputEvents(void)
     // Map touch position to mouse position for convenience
     if (CORE.Input.Touch.pointCount == 0) CORE.Input.Touch.position[0] = CORE.Input.Mouse.currentPosition;
 
-    int touchAction = -1;       // 0-TOUCH_ACTION_UP, 1-TOUCH_ACTION_DOWN, 2-TOUCH_ACTION_MOVE
-    bool realTouch = false;     // Flag to differentiate real touch gestures from mouse ones
 
     // Register previous keys states
     // NOTE: Android supports up to 260 keys
@@ -1481,530 +1924,6 @@ void PollInputEvents(void)
     //for (int i = 0; i < 256; i++) CORE.Input.Keyboard.currentKeyState[i] = keys[i];
 
     CORE.Window.resizedLastFrame = false;
-
-    if ((CORE.Window.eventWaiting) || (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_MINIMIZED) && !FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_ALWAYS_RUN)))
-    {
-        SDL_WaitEvent(NULL);
-        CORE.Time.previous = GetTime();
-    }
-
-    SDL_Event event = { 0 };
-    while (SDL_PollEvent(&event) != 0)
-    {
-        // All input events can be processed after polling
-        switch (event.type)
-        {
-            case SDL_QUIT: CORE.Window.shouldClose = true; break;
-
-            case SDL_DROPFILE:      // Dropped file
-            {
-                if (CORE.Window.dropFileCount == 0)
-                {
-                    // When a new file is dropped, reserve a fixed number of slots for all possible dropped files
-                    // at the moment limit the number of drops at once to 1024 files but this behaviour should probably be reviewed
-                    // TODO: Pointers should probably be reallocated for any new file added...
-                    CORE.Window.dropFilepaths = (char **)RL_CALLOC(1024, sizeof(char *));
-
-                    CORE.Window.dropFilepaths[CORE.Window.dropFileCount] = (char *)RL_CALLOC(MAX_FILEPATH_LENGTH, sizeof(char));
-
-                #if defined(USING_VERSION_SDL3)
-                    // const char *data;   // The text for SDL_EVENT_DROP_TEXT and the file name for SDL_EVENT_DROP_FILE, NULL for other events
-                    // Event memory is now managed by SDL, so it should not be freed in SDL_EVENT_DROP_FILE,
-                    // in case data needs to be hold onto the text in SDL_EVENT_TEXT_EDITING and SDL_EVENT_TEXT_INPUT events,
-                    // a copy is required, SDL_TEXTINPUTEVENT_TEXT_SIZE is no longer necessary and has been removed
-                    strncpy(CORE.Window.dropFilepaths[CORE.Window.dropFileCount], event.drop.data, MAX_FILEPATH_LENGTH - 1);
-                #else
-                    strncpy(CORE.Window.dropFilepaths[CORE.Window.dropFileCount], event.drop.file, MAX_FILEPATH_LENGTH - 1);
-                    SDL_free(event.drop.file);
-                #endif
-
-                    CORE.Window.dropFileCount++;
-                }
-                else if (CORE.Window.dropFileCount < 1024)
-                {
-                    CORE.Window.dropFilepaths[CORE.Window.dropFileCount] = (char *)RL_CALLOC(MAX_FILEPATH_LENGTH, sizeof(char));
-
-                #if defined(USING_VERSION_SDL3)
-                    strncpy(CORE.Window.dropFilepaths[CORE.Window.dropFileCount], event.drop.data, MAX_FILEPATH_LENGTH - 1);
-                #else
-                    strncpy(CORE.Window.dropFilepaths[CORE.Window.dropFileCount], event.drop.file, MAX_FILEPATH_LENGTH - 1);
-                    SDL_free(event.drop.file);
-                #endif
-
-                    CORE.Window.dropFileCount++;
-                }
-                else TRACELOG(LOG_WARNING, "FILE: Maximum drag and drop files at once is limited to 1024 files!");
-
-            } break;
-
-            // Window events are also polled (minimized, maximized, close...)
-
-            #ifndef USING_VERSION_SDL3
-            // The SDL_WINDOWEVENT_* events have been moved to top level events, and SDL_WINDOWEVENT has been removed
-            // In general, handling this change means checking for the individual events instead of first checking for SDL_WINDOWEVENT
-            // and then checking for window events; Events >= SDL_EVENT_WINDOW_FIRST and <= SDL_EVENT_WINDOW_LAST can be compared
-            // to see whether it's a window event
-            case SDL_WINDOWEVENT:
-            {
-                switch (event.window.event)
-                {
-            #endif
-                    case SDL_WINDOWEVENT_RESIZED:
-                    case SDL_WINDOWEVENT_SIZE_CHANGED:
-                    {
-                        const int width = event.window.data1;
-                        const int height = event.window.data2;
-                        SetupViewport(width, height);
-
-                        // Consider content scaling if required
-                        if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_HIGHDPI))
-                        {
-                            CORE.Window.screen.width = (int)(width/GetWindowScaleDPI().x);
-                            CORE.Window.screen.height = (int)(height/GetWindowScaleDPI().y);
-                        }
-                        else
-                        {
-                            CORE.Window.screen.width = width;
-                            CORE.Window.screen.height = height;
-                        }
-                        CORE.Window.currentFbo.width = width;
-                        CORE.Window.currentFbo.height = height;
-                        CORE.Window.resizedLastFrame = true;
-
-                        #ifndef USING_VERSION_SDL3
-                        // Manually detect if the window was maximized (due to SDL2 restore being unreliable on some platforms)
-                        // to remove the FLAG_WINDOW_MAXIMIZED accordingly
-                        if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_MAXIMIZED))
-                        {
-                            int borderTop = 0;
-                            int borderLeft = 0;
-                            int borderBottom = 0;
-                            int borderRight = 0;
-                            SDL_GetWindowBordersSize(platform.window, &borderTop, &borderLeft, &borderBottom, &borderRight);
-                            SDL_Rect usableBounds;
-                            SDL_GetDisplayUsableBounds(SDL_GetWindowDisplayIndex(platform.window), &usableBounds);
-
-                            if ((width + borderLeft + borderRight != usableBounds.w) && (height + borderTop + borderBottom != usableBounds.h)) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_MAXIMIZED);
-                        }
-                        #endif
-
-                        #if defined(GRAPHICS_API_OPENGL_SOFTWARE)
-                        swResize(width, height);
-                        #endif
-                    } break;
-
-                    case SDL_WINDOWEVENT_ENTER: CORE.Input.Mouse.cursorOnScreen = true; break;
-                    case SDL_WINDOWEVENT_LEAVE: CORE.Input.Mouse.cursorOnScreen = false; break;
-
-                    case SDL_WINDOWEVENT_MINIMIZED:
-                    {
-                        if (!FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_MINIMIZED)) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_MINIMIZED);
-                    } break;
-                    case SDL_WINDOWEVENT_MAXIMIZED:
-                    {
-                        if (!FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_MAXIMIZED)) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_MAXIMIZED);
-                    } break;
-                    case SDL_WINDOWEVENT_RESTORED:
-                    {
-                        if (!FLAG_IS_SET(SDL_GetWindowFlags(platform.window), SDL_WINDOW_MINIMIZED))
-                        {
-                            if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_MINIMIZED)) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_MINIMIZED);
-                        }
-
-                        #ifdef USING_VERSION_SDL3
-                        if (!FLAG_IS_SET(SDL_GetWindowFlags(platform.window), SDL_WINDOW_MAXIMIZED))
-                        {
-                            if (FLAG_IS_SET(CORE.Window.flags, SDL_WINDOW_MAXIMIZED)) FLAG_CLEAR(CORE.Window.flags, SDL_WINDOW_MAXIMIZED);
-                        }
-                        #endif
-                    } break;
-
-                    case SDL_WINDOWEVENT_HIDDEN:
-                    {
-                        if (!FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_HIDDEN)) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_HIDDEN);
-                    } break;
-                    case SDL_WINDOWEVENT_SHOWN:
-                    {
-                        if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_HIDDEN)) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_HIDDEN);
-                    } break;
-
-                    case SDL_WINDOWEVENT_FOCUS_GAINED:
-                    {
-                        if (FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED)) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);
-                    } break;
-                    case SDL_WINDOWEVENT_FOCUS_LOST:
-                    {
-                        if (!FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED)) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);
-                    } break;
-
-            #ifndef USING_VERSION_SDL3
-                    default: break;
-                }
-            } break;
-            #endif
-
-            // Keyboard events
-            case SDL_KEYDOWN:
-            {
-            #if defined(USING_VERSION_SDL3)
-                // SDL3 Migration: The following structures have been removed: SDL_Keysym
-                KeyboardKey key = ConvertScancodeToKey(event.key.scancode);
-            #else
-                KeyboardKey key = ConvertScancodeToKey(event.key.keysym.scancode);
-            #endif
-
-                if (key != KEY_NULL)
-                {
-                    // If key was up, add it to the key pressed queue
-                    if ((CORE.Input.Keyboard.currentKeyState[key] == 0) && (CORE.Input.Keyboard.keyPressedQueueCount < MAX_KEY_PRESSED_QUEUE))
-                    {
-                        CORE.Input.Keyboard.keyPressedQueue[CORE.Input.Keyboard.keyPressedQueueCount] = key;
-                        CORE.Input.Keyboard.keyPressedQueueCount++;
-                    }
-
-                    CORE.Input.Keyboard.currentKeyState[key] = 1;
-                }
-
-                if (event.key.repeat) CORE.Input.Keyboard.keyRepeatInFrame[key] = 1;
-
-                // Check for registered exit key to request exit game loop on next iteration
-                if (CORE.Input.Keyboard.currentKeyState[CORE.Input.Keyboard.exitKey]) CORE.Window.shouldClose = true;
-
-            } break;
-
-            case SDL_KEYUP:
-            {
-
-            #if defined(USING_VERSION_SDL3)
-                KeyboardKey key = ConvertScancodeToKey(event.key.scancode);
-            #else
-                KeyboardKey key = ConvertScancodeToKey(event.key.keysym.scancode);
-            #endif
-                if (key != KEY_NULL) CORE.Input.Keyboard.currentKeyState[key] = 0;
-            } break;
-
-            case SDL_TEXTINPUT:
-            {
-                // NOTE: event.text.text data comes an UTF-8 text sequence but register codepoints (int)
-
-                // Check if there is space available in the queue
-                if (CORE.Input.Keyboard.charPressedQueueCount < MAX_CHAR_PRESSED_QUEUE)
-                {
-                    // Add character (codepoint) to the queue
-
-                #if defined(USING_VERSION_SDL3)
-                    size_t textLen = strlen(event.text.text);
-                    unsigned int codepoint = (unsigned int)SDL_StepUTF8(&event.text.text, &textLen);
-                #else
-                    int codepointSize = 0;
-                    int codepoint = GetCodepointNextSDL(event.text.text, &codepointSize);
-                #endif
-
-                    CORE.Input.Keyboard.charPressedQueue[CORE.Input.Keyboard.charPressedQueueCount] = codepoint;
-                    CORE.Input.Keyboard.charPressedQueueCount++;
-                }
-            } break;
-
-            // Check mouse events
-            case SDL_MOUSEBUTTONDOWN:
-            {
-                // NOTE: SDL2 mouse button order is LEFT, MIDDLE, RIGHT, but raylib uses LEFT, RIGHT, MIDDLE like GLFW
-                // The following conditions align SDL with raylib.h MouseButton enum order
-                int btn = event.button.button - 1;
-                if (btn == 2) btn = 1;
-                else if (btn == 1) btn = 2;
-
-                CORE.Input.Mouse.currentButtonState[btn] = 1;
-                CORE.Input.Touch.currentTouchState[btn] = 1;
-
-                touchAction = 1;
-            } break;
-            case SDL_MOUSEBUTTONUP:
-            {
-                // NOTE: SDL2 mouse button order is LEFT, MIDDLE, RIGHT, but raylib uses LEFT, RIGHT, MIDDLE like GLFW
-                // The following conditions align SDL with raylib.h MouseButton enum order
-                int btn = event.button.button - 1;
-                if (btn == 2) btn = 1;
-                else if (btn == 1) btn = 2;
-
-                CORE.Input.Mouse.currentButtonState[btn] = 0;
-                CORE.Input.Touch.currentTouchState[btn] = 0;
-
-                touchAction = 0;
-            } break;
-            case SDL_MOUSEWHEEL:
-            {
-#if defined(USING_VERSION_SDL3)
-                CORE.Input.Mouse.currentWheelMove.x = event.wheel.x;
-                CORE.Input.Mouse.currentWheelMove.y = event.wheel.y;
-#else
-                CORE.Input.Mouse.currentWheelMove.x = event.wheel.preciseX;
-                CORE.Input.Mouse.currentWheelMove.y = event.wheel.preciseY;
-#endif
-            } break;
-            case SDL_MOUSEMOTION:
-            {
-                if (CORE.Input.Mouse.cursorLocked)
-                {
-                    CORE.Input.Mouse.currentPosition.x = (float)event.motion.xrel;
-                    CORE.Input.Mouse.currentPosition.y = (float)event.motion.yrel;
-                    CORE.Input.Mouse.previousPosition = (Vector2){ 0.0f, 0.0f };
-                }
-                else
-                {
-                    CORE.Input.Mouse.currentPosition.x = (float)event.motion.x;
-                    CORE.Input.Mouse.currentPosition.y = (float)event.motion.y;
-                }
-
-                CORE.Input.Touch.position[0] = CORE.Input.Mouse.currentPosition;
-                touchAction = 2;
-            } break;
-
-            case SDL_FINGERDOWN:
-            {
-                UpdateTouchPointsSDL(event.tfinger);
-                touchAction = 1;
-                realTouch = true;
-            } break;
-            case SDL_FINGERUP:
-            {
-                UpdateTouchPointsSDL(event.tfinger);
-                touchAction = 0;
-                realTouch = true;
-            } break;
-            case SDL_FINGERMOTION:
-            {
-                UpdateTouchPointsSDL(event.tfinger);
-                touchAction = 2;
-                realTouch = true;
-            } break;
-
-            // Check gamepad events
-            case SDL_JOYDEVICEADDED:
-            {
-                int jid = event.jdevice.which; // Joystick device index
-
-                // check if already added at InitPlatform
-                for (int i = 0; i < MAX_GAMEPADS; i++)
-                {
-                    if (jid == platform.gamepadId[i])
-                    {
-                        return;
-                    }
-                }
-
-                int nextAvailableSlot = 0;
-                while (nextAvailableSlot < MAX_GAMEPADS && CORE.Input.Gamepad.ready[nextAvailableSlot])
-                {
-                    ++nextAvailableSlot;
-                }
-
-                if ((nextAvailableSlot < MAX_GAMEPADS) && !CORE.Input.Gamepad.ready[nextAvailableSlot])
-                {
-                    platform.gamepad[nextAvailableSlot] = SDL_GameControllerOpen(jid);
-                    platform.gamepadId[nextAvailableSlot] = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(platform.gamepad[nextAvailableSlot]));
-
-                    if (platform.gamepad[nextAvailableSlot])
-                    {
-                        CORE.Input.Gamepad.ready[nextAvailableSlot] = true;
-                        CORE.Input.Gamepad.axisCount[nextAvailableSlot] = SDL_JoystickNumAxes(SDL_GameControllerGetJoystick(platform.gamepad[nextAvailableSlot]));
-                        CORE.Input.Gamepad.axisState[nextAvailableSlot][GAMEPAD_AXIS_LEFT_TRIGGER] = -1.0f;
-                        CORE.Input.Gamepad.axisState[nextAvailableSlot][GAMEPAD_AXIS_RIGHT_TRIGGER] = -1.0f;
-                        memset(CORE.Input.Gamepad.name[nextAvailableSlot], 0, MAX_GAMEPAD_NAME_LENGTH);
-                        const char *controllerName = SDL_GameControllerNameForIndex(nextAvailableSlot);
-                        if (controllerName != NULL) strncpy(CORE.Input.Gamepad.name[nextAvailableSlot], controllerName, MAX_GAMEPAD_NAME_LENGTH - 1);
-                        else strncpy(CORE.Input.Gamepad.name[nextAvailableSlot], "noname", 6);
-                    }
-                    else TRACELOG(LOG_WARNING, "PLATFORM: Unable to open game controller [ERROR: %s]", SDL_GetError());
-                }
-            } break;
-            case SDL_JOYDEVICEREMOVED:
-            {
-                int jid = event.jdevice.which; // Joystick instance id
-
-                for (int i = 0; i < MAX_GAMEPADS; i++)
-                {
-                    if (platform.gamepadId[i] == jid)
-                    {
-                        SDL_GameControllerClose(platform.gamepad[i]);
-                        CORE.Input.Gamepad.ready[i] = false;
-                        memset(CORE.Input.Gamepad.name[i], 0, MAX_GAMEPAD_NAME_LENGTH);
-                        platform.gamepadId[i] = -1;
-                        break;
-                    }
-                }
-            } break;
-            case SDL_CONTROLLERBUTTONDOWN:
-            {
-                int button = -1;
-
-            #if defined(USING_VERSION_SDL3)
-                switch (event.gbutton.button)
-            #else
-                switch (event.jbutton.button)
-            #endif
-                {
-                    case SDL_CONTROLLER_BUTTON_Y: button = GAMEPAD_BUTTON_RIGHT_FACE_UP; break;
-                    case SDL_CONTROLLER_BUTTON_B: button = GAMEPAD_BUTTON_RIGHT_FACE_RIGHT; break;
-                    case SDL_CONTROLLER_BUTTON_A: button = GAMEPAD_BUTTON_RIGHT_FACE_DOWN; break;
-                    case SDL_CONTROLLER_BUTTON_X: button = GAMEPAD_BUTTON_RIGHT_FACE_LEFT; break;
-
-                    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: button = GAMEPAD_BUTTON_LEFT_TRIGGER_1; break;
-                    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: button = GAMEPAD_BUTTON_RIGHT_TRIGGER_1; break;
-
-                    case SDL_CONTROLLER_BUTTON_BACK: button = GAMEPAD_BUTTON_MIDDLE_LEFT; break;
-                    case SDL_CONTROLLER_BUTTON_GUIDE: button = GAMEPAD_BUTTON_MIDDLE; break;
-                    case SDL_CONTROLLER_BUTTON_START: button = GAMEPAD_BUTTON_MIDDLE_RIGHT; break;
-
-                    case SDL_CONTROLLER_BUTTON_DPAD_UP: button = GAMEPAD_BUTTON_LEFT_FACE_UP; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: button = GAMEPAD_BUTTON_LEFT_FACE_RIGHT; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: button = GAMEPAD_BUTTON_LEFT_FACE_DOWN; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: button = GAMEPAD_BUTTON_LEFT_FACE_LEFT; break;
-
-                    case SDL_CONTROLLER_BUTTON_LEFTSTICK: button = GAMEPAD_BUTTON_LEFT_THUMB; break;
-                    case SDL_CONTROLLER_BUTTON_RIGHTSTICK: button = GAMEPAD_BUTTON_RIGHT_THUMB; break;
-                    default: break;
-                }
-
-                if (button >= 0)
-                {
-                    for (int i = 0; i < MAX_GAMEPADS; i++)
-                    {
-                    #if defined(USING_VERSION_SDL3)
-                        if (platform.gamepadId[i] == event.gbutton.which)
-                    #else
-                        if (platform.gamepadId[i] == event.jbutton.which)
-                    #endif
-                        {
-                            CORE.Input.Gamepad.currentButtonState[i][button] = 1;
-                            CORE.Input.Gamepad.lastButtonPressed = button;
-                            break;
-                        }
-                    }
-                }
-            } break;
-            case SDL_CONTROLLERBUTTONUP:
-            {
-                int button = -1;
-
-            #if defined(USING_VERSION_SDL3)
-                switch (event.gbutton.button)
-            #else
-                switch (event.jbutton.button)
-            #endif
-                {
-                    case SDL_CONTROLLER_BUTTON_Y: button = GAMEPAD_BUTTON_RIGHT_FACE_UP; break;
-                    case SDL_CONTROLLER_BUTTON_B: button = GAMEPAD_BUTTON_RIGHT_FACE_RIGHT; break;
-                    case SDL_CONTROLLER_BUTTON_A: button = GAMEPAD_BUTTON_RIGHT_FACE_DOWN; break;
-                    case SDL_CONTROLLER_BUTTON_X: button = GAMEPAD_BUTTON_RIGHT_FACE_LEFT; break;
-
-                    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: button = GAMEPAD_BUTTON_LEFT_TRIGGER_1; break;
-                    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: button = GAMEPAD_BUTTON_RIGHT_TRIGGER_1; break;
-
-                    case SDL_CONTROLLER_BUTTON_BACK: button = GAMEPAD_BUTTON_MIDDLE_LEFT; break;
-                    case SDL_CONTROLLER_BUTTON_GUIDE: button = GAMEPAD_BUTTON_MIDDLE; break;
-                    case SDL_CONTROLLER_BUTTON_START: button = GAMEPAD_BUTTON_MIDDLE_RIGHT; break;
-
-                    case SDL_CONTROLLER_BUTTON_DPAD_UP: button = GAMEPAD_BUTTON_LEFT_FACE_UP; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: button = GAMEPAD_BUTTON_LEFT_FACE_RIGHT; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: button = GAMEPAD_BUTTON_LEFT_FACE_DOWN; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: button = GAMEPAD_BUTTON_LEFT_FACE_LEFT; break;
-
-                    case SDL_CONTROLLER_BUTTON_LEFTSTICK: button = GAMEPAD_BUTTON_LEFT_THUMB; break;
-                    case SDL_CONTROLLER_BUTTON_RIGHTSTICK: button = GAMEPAD_BUTTON_RIGHT_THUMB; break;
-                    default: break;
-                }
-
-                if (button >= 0)
-                {
-                    for (int i = 0; i < MAX_GAMEPADS; i++)
-                    {
-                    #if defined(USING_VERSION_SDL3)
-                        if (platform.gamepadId[i] == event.gbutton.which)
-                    #else
-                        if (platform.gamepadId[i] == event.jbutton.which)
-                    #endif
-                        {
-                            CORE.Input.Gamepad.currentButtonState[i][button] = 0;
-                            if (CORE.Input.Gamepad.lastButtonPressed == button) CORE.Input.Gamepad.lastButtonPressed = 0;
-                            break;
-                        }
-                    }
-                }
-            } break;
-            case SDL_CONTROLLERAXISMOTION:
-            {
-                int axis = -1;
-
-                switch (event.jaxis.axis)
-                {
-                    case SDL_CONTROLLER_AXIS_LEFTX: axis = GAMEPAD_AXIS_LEFT_X; break;
-                    case SDL_CONTROLLER_AXIS_LEFTY: axis = GAMEPAD_AXIS_LEFT_Y; break;
-                    case SDL_CONTROLLER_AXIS_RIGHTX: axis = GAMEPAD_AXIS_RIGHT_X; break;
-                    case SDL_CONTROLLER_AXIS_RIGHTY: axis = GAMEPAD_AXIS_RIGHT_Y; break;
-                    case SDL_CONTROLLER_AXIS_TRIGGERLEFT: axis = GAMEPAD_AXIS_LEFT_TRIGGER; break;
-                    case SDL_CONTROLLER_AXIS_TRIGGERRIGHT: axis = GAMEPAD_AXIS_RIGHT_TRIGGER; break;
-                    default: break;
-                }
-
-                if (axis >= 0)
-                {
-                    for (int i = 0; i < MAX_GAMEPADS; i++)
-                    {
-                        if (platform.gamepadId[i] == event.jaxis.which)
-                        {
-                            // SDL axis value range is -32768 to 32767, normalizing it to raylib's -1.0 to 1.0f range
-                            float value = event.jaxis.value/(float)32767;
-                            CORE.Input.Gamepad.axisState[i][axis] = value;
-
-                            // Register button state for triggers in addition to their axes
-                            if ((axis == GAMEPAD_AXIS_LEFT_TRIGGER) || (axis == GAMEPAD_AXIS_RIGHT_TRIGGER))
-                            {
-                                int button = (axis == GAMEPAD_AXIS_LEFT_TRIGGER)? GAMEPAD_BUTTON_LEFT_TRIGGER_2 : GAMEPAD_BUTTON_RIGHT_TRIGGER_2;
-                                int pressed = (value > 0.1f);
-                                CORE.Input.Gamepad.currentButtonState[i][button] = pressed;
-                                if (pressed) CORE.Input.Gamepad.lastButtonPressed = button;
-                                else if (CORE.Input.Gamepad.lastButtonPressed == button) CORE.Input.Gamepad.lastButtonPressed = 0;
-                            }
-                            break;
-                        }
-                    }
-                }
-            } break;
-            default: break;
-        }
-
-#if SUPPORT_GESTURES_SYSTEM
-        if (touchAction > -1)
-        {
-            // Process mouse events as touches to be able to use mouse-gestures
-            GestureEvent gestureEvent = { 0 };
-
-            // Register touch actions
-            gestureEvent.touchAction = touchAction;
-
-            // Assign a pointer ID
-            gestureEvent.pointId[0] = 0;
-
-            // Register touch points count
-            gestureEvent.pointCount = 1;
-
-            // Register touch points position, only one point registered
-            if (touchAction == 2 || realTouch) gestureEvent.position[0] = CORE.Input.Touch.position[0];
-            else gestureEvent.position[0] = GetMousePosition();
-
-            // Normalize gestureEvent.position[0] for CORE.Window.screen.width and CORE.Window.screen.height
-            gestureEvent.position[0].x /= (float)GetScreenWidth();
-            gestureEvent.position[0].y /= (float)GetScreenHeight();
-
-            // Gesture data is sent to gestures-system for processing
-            ProcessGestureEvent(gestureEvent);
-
-            touchAction = -1;
-        }
-#endif
-    }
-    //-----------------------------------------------------------------------------
 }
 
 //----------------------------------------------------------------------------------
@@ -2228,7 +2147,7 @@ void ClosePlatform(void)
 }
 
 // Scancode to keycode mapping
-static KeyboardKey ConvertScancodeToKey(SDL_Scancode sdlScancode)
+KeyboardKey ConvertScancodeToKey(SDL_Scancode sdlScancode)
 {
     if ((sdlScancode >= 0) && (sdlScancode < SCANCODE_MAPPED_NUM))
     {
