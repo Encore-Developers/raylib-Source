@@ -1639,16 +1639,17 @@ void ProcessSDLEvent(SDL_Event event) {
         } break;
         case SDL_MOUSEMOTION:
         {
+            float scale = SDL_GetWindowDisplayScale(GetSDLWindow());
             if (CORE.Input.Mouse.cursorLocked)
             {
-                CORE.Input.Mouse.currentPosition.x = (float)event.motion.xrel;
-                CORE.Input.Mouse.currentPosition.y = (float)event.motion.yrel;
+                CORE.Input.Mouse.currentPosition.x = (float)event.motion.xrel*scale;
+                CORE.Input.Mouse.currentPosition.y = (float)event.motion.yrel*scale;
                 CORE.Input.Mouse.previousPosition = (Vector2){ 0.0f, 0.0f };
             }
             else
             {
-                CORE.Input.Mouse.currentPosition.x = (float)event.motion.x;
-                CORE.Input.Mouse.currentPosition.y = (float)event.motion.y;
+                CORE.Input.Mouse.currentPosition.x = (float)event.motion.x*scale;
+                CORE.Input.Mouse.currentPosition.y = (float)event.motion.y*scale;
             }
 
             CORE.Input.Touch.position[0] = CORE.Input.Mouse.currentPosition;

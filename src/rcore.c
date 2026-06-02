@@ -1080,8 +1080,8 @@ void BeginScissorMode(int x, int y, int width, int height)
 #if defined(__APPLE__)
     if (!CORE.Window.usingFbo)
     {
-        Vector2 scale = GetWindowScaleDPI();
-        rlScissor((int)(x*scale.x), (int)(GetScreenHeight()*scale.y - (((y + height)*scale.y))), (int)(width*scale.x), (int)(height*scale.y));
+        Vector2 scale = {1, 1};
+        rlScissor((int)(x*scale.x), (int)(GetRenderHeight()*scale.y - (((y + height)*scale.y))), (int)(width*scale.x), (int)(height*scale.y));
     }
 #else
     if (!CORE.Window.usingFbo && FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_HIGHDPI))
