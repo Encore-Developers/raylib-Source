@@ -1419,6 +1419,10 @@ const char *GetKeyName(int key)
     return SDL_GetKeyName(key);
 }
 
+SDL_Window* GetSDLWindow(void) {
+    return platform.window;
+}
+
 void ProcessSDLEvent(SDL_Event event) {
 
     int touchAction = 0;
