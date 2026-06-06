@@ -1495,7 +1495,7 @@ Matrix GetCameraMatrix2D(Camera2D camera)
 // Get screen space position from a 3d world space position
 Vector2 GetWorldToScreen(Vector3 position, Camera camera)
 {
-    Vector2 screenPosition = GetWorldToScreenEx(position, camera, GetScreenWidth(), GetScreenHeight());
+    Vector2 screenPosition = GetWorldToScreenEx(position, camera, GetRenderWidth(), GetRenderHeight());
 
     return screenPosition;
 }
