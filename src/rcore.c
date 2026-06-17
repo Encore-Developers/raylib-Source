@@ -1818,14 +1818,12 @@ void TakeScreenshot(const char *fileName)
     unsigned char *imgData = rlReadScreenPixels((int)((float)CORE.Window.render.width*scale.x), (int)((float)CORE.Window.render.height*scale.y));
     Image image = { imgData, (int)((float)CORE.Window.render.width*scale.x), (int)((float)CORE.Window.render.height*scale.y), 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
 
-    char path[MAX_FILEPATH_LENGTH] = { 0 };
-    strncpy(path, TextFormat("%s/%s", CORE.Storage.basePath, fileName), MAX_FILEPATH_LENGTH - 1);
 
-    ExportImage(image, path); // WARNING: Module required: rtextures
+    ExportImage(image, fileName); // WARNING: Module required: rtextures
     RL_FREE(imgData);
 
-    if (FileExists(path)) TRACELOG(LOG_INFO, "SYSTEM: [%s] Screenshot taken successfully", path);
-    else TRACELOG(LOG_WARNING, "SYSTEM: [%s] Screenshot could not be saved", path);
+    if (FileExists(fileName)) TRACELOG(LOG_INFO, "SYSTEM: [%s] Screenshot taken successfully", fileName);
+    else TRACELOG(LOG_WARNING, "SYSTEM: [%s] Screenshot could not be saved", fileName);
 #else
     TRACELOG(LOG_WARNING,"IMAGE: ExportImage() requires module: rtextures");
 #endif
