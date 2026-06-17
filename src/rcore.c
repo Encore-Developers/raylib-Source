@@ -1808,8 +1808,6 @@ void UnloadRandomSequence(int *sequence)
 void TakeScreenshot(const char *fileName)
 {
 #if SUPPORT_MODULE_RTEXTURES
-    // Security check to (partially) avoid malicious code
-    if (strchr(fileName, '\'') != NULL) { TRACELOG(LOG_WARNING, "SYSTEM: Provided fileName could be potentially malicious, avoid [\'] character"); return; }
 
     // Apply content scaling if required
     Vector2 scale = { 1.0f, 1.0f };
