@@ -716,9 +716,9 @@ void DrawRingLines(Vector2 center, float innerRadius, float outerRadius, float s
 }
 
 // Draw a color-filled rectangle
-void DrawRectangle(int posX, int posY, int width, int height, Color color)
+void DrawRectangle(float posX, float posY, float width, float height, Color color)
 {
-    DrawRectangleV((Vector2){ (float)posX, (float)posY }, (Vector2){ (float)width, (float)height }, color);
+    DrawRectangleV((Vector2){ posX, posY }, (Vector2){ width, height }, color);
 }
 
 // Draw a color-filled rectangle (Vector version)
@@ -816,15 +816,15 @@ void DrawRectanglePro(Rectangle rec, Vector2 origin, float rotation, Color color
 }
 
 // Draw a vertical-gradient-filled rectangle
-void DrawRectangleGradientV(int posX, int posY, int width, int height, Color top, Color bottom)
+void DrawRectangleGradientV(float posX, float posY, float width, float height, Color top, Color bottom)
 {
-    DrawRectangleGradientEx((Rectangle){ (float)posX, (float)posY, (float)width, (float)height }, top, bottom, bottom, top);
+    DrawRectangleGradientEx((Rectangle){ posX, posY, width, height }, top, bottom, bottom, top);
 }
 
 // Draw a horizontal-gradient-filled rectangle
-void DrawRectangleGradientH(int posX, int posY, int width, int height, Color left, Color right)
+void DrawRectangleGradientH(float posX, float posY, float width, float height, Color left, Color right)
 {
-    DrawRectangleGradientEx((Rectangle){ (float)posX, (float)posY, (float)width, (float)height }, left, left, right, right);
+    DrawRectangleGradientEx((Rectangle){ posX, posY, width, height }, left, left, right, right);
 }
 
 // Draw a gradient-filled rectangle
