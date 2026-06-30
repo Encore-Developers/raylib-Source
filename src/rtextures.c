@@ -4689,12 +4689,14 @@ void DrawTextureNPatch(Texture2D texture, NPatchInfo nPatchInfo, Rectangle dest,
         Vector2 coordB = { 0 };
         Vector2 coordC = { 0 };
         Vector2 coordD = { 0 };
+        float oneThirdWidth = nPatchInfo.source.width/3.0f;
+        float oneThirdHeight = nPatchInfo.source.height/3.0f;
         coordA.x = nPatchInfo.source.x/width;
         coordA.y = nPatchInfo.source.y/height;
-        coordB.x = (nPatchInfo.source.x + leftBorder)/width;
-        coordB.y = (nPatchInfo.source.y + topBorder)/height;
-        coordC.x = (nPatchInfo.source.x + nPatchInfo.source.width  - rightBorder)/width;
-        coordC.y = (nPatchInfo.source.y + nPatchInfo.source.height - bottomBorder)/height;
+        coordB.x = (nPatchInfo.source.x + oneThirdWidth)/width;
+        coordB.y = (nPatchInfo.source.y + oneThirdHeight)/height;
+        coordC.x = (nPatchInfo.source.x + nPatchInfo.source.width  - oneThirdWidth)/width;
+        coordC.y = (nPatchInfo.source.y + nPatchInfo.source.height - oneThirdHeight)/height;
         coordD.x = (nPatchInfo.source.x + nPatchInfo.source.width)/width;
         coordD.y = (nPatchInfo.source.y + nPatchInfo.source.height)/height;
 
