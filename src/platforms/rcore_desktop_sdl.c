@@ -1642,7 +1642,7 @@ void ProcessSDLEvent(SDL_Event event) {
 #ifdef __APPLE__
             float scale = SDL_GetWindowDisplayScale(GetSDLWindow());
 #else
-            float scale = 1
+            float scale = 1;
 #endif
             if (CORE.Input.Mouse.cursorLocked)
             {
