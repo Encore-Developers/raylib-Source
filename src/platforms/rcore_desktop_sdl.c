@@ -1639,7 +1639,7 @@ void ProcessSDLEvent(SDL_Event event) {
         } break;
         case SDL_MOUSEMOTION:
         {
-            float scale = 1;
+            float scale = SDL_GetWindowDisplayScale(GetSDLWindow());
             if (CORE.Input.Mouse.cursorLocked)
             {
                 CORE.Input.Mouse.currentPosition.x = (float)event.motion.xrel*scale;
