@@ -1639,7 +1639,11 @@ void ProcessSDLEvent(SDL_Event event) {
         } break;
         case SDL_MOUSEMOTION:
         {
+#ifdef __APPLE__
             float scale = SDL_GetWindowDisplayScale(GetSDLWindow());
+#else
+            float scale = 1
+#endif
             if (CORE.Input.Mouse.cursorLocked)
             {
                 CORE.Input.Mouse.currentPosition.x = (float)event.motion.xrel*scale;
