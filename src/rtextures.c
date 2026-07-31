@@ -4646,8 +4646,8 @@ void DrawTextureNPatch(Texture2D texture, NPatchInfo nPatchInfo, Rectangle dest,
 
         if (nPatchInfo.source.width < 0) nPatchInfo.source.x -= nPatchInfo.source.width;
         if (nPatchInfo.source.height < 0) nPatchInfo.source.y -= nPatchInfo.source.height;
-        if (nPatchInfo.layout == NPATCH_THREE_PATCH_HORIZONTAL) patchHeight = nPatchInfo.source.height;
-        if (nPatchInfo.layout == NPATCH_THREE_PATCH_VERTICAL) patchWidth = nPatchInfo.source.width;
+        if (nPatchInfo.layout == NPATCH_THREE_PATCH_HORIZONTAL) patchHeight = dest.height;
+        if (nPatchInfo.layout == NPATCH_THREE_PATCH_VERTICAL) patchWidth = dest.width;
 
         bool drawCenter = true;
         bool drawMiddle = true;
